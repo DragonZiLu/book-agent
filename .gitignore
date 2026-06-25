@@ -1,0 +1,13 @@
+# 环境变量（含 API key）
+.env
+
+# 缓存
+.cache/
+__pycache__/
+
+# 输出
+output/
+
+# IDE
+.vscode/
+.idea/

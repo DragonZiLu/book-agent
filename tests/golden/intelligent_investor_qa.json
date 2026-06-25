@@ -1,0 +1,122 @@
+[
+  {
+    "question": "一家公司过去10年有2年亏损，格雷厄姆防御型标准怎么判？",
+    "gold_answer": "不符合，要求过去10年每年均有盈利",
+    "evidence_span": "an uninterrupted record of dividend payments for at least the past 20 years",
+    "answer_type": "direction",
+    "expected_verdict": "AVOID",
+    "source_chapter": 14
+  },
+  {
+    "question": "根据格雷厄姆标准，PE最大允许值是多少？",
+    "gold_answer": "15",
+    "evidence_span": "current price should not be more than 15 times average earnings of the past three years",
+    "answer_type": "numeric",
+    "expected_verdict": null,
+    "source_chapter": 14
+  },
+  {
+    "question": "格雷厄姆要求PE乘以PB不应该超过多少？",
+    "gold_answer": "22.5",
+    "evidence_span": "product of the multiplier times the ratio of price to book value should not exceed 22.5",
+    "answer_type": "numeric",
+    "expected_verdict": null,
+    "source_chapter": 14
+  },
+  {
+    "question": "防御型投资者应选择什么样的公司规模？",
+    "gold_answer": "大型、知名的公司，年营收不低于1亿美元（按1970年代标准）",
+    "evidence_span": "Adequate size: not less than $100 million of annual sales for an industrial company",
+    "answer_type": "factual",
+    "expected_verdict": null,
+    "source_chapter": 14
+  },
+  {
+    "question": "如果一家科技公司PE为25，但增长很快，格雷厄姆框架下应该买入吗？",
+    "gold_answer": "不应该，PE超过15不符合防御型投资者标准",
+    "evidence_span": "current price should not be more than 15 times average earnings",
+    "answer_type": "direction",
+    "expected_verdict": "AVOID",
+    "source_chapter": 14
+  },
+  {
+    "question": "格雷厄姆要求公司有多少年连续分红记录？",
+    "gold_answer": "至少20年",
+    "evidence_span": "uninterrupted record of dividend payments for at least the past 20 years",
+    "answer_type": "numeric",
+    "expected_verdict": null,
+    "source_chapter": 14
+  },
+  {
+    "question": "流动比率低于2的公司，在格雷厄姆框架下是否适合防御型投资？",
+    "gold_answer": "不适合，要求流动比率至少2.0",
+    "evidence_span": "current assets should be at least twice current liabilities",
+    "answer_type": "direction",
+    "expected_verdict": "AVOID",
+    "source_chapter": 14
+  },
+  {
+    "question": "防御型投资者是否应该关注市场时机（择时）？",
+    "gold_answer": "不应该，防御型投资者不应试图择时，应关注价值",
+    "evidence_span": "The defensive investor should not try to time the market",
+    "answer_type": "direction",
+    "expected_verdict": "HOLD",
+    "source_chapter": 8
+  },
+  {
+    "question": "什么是安全边际？",
+    "gold_answer": "买入价格低于内在价值的差额，是投资中最重要的概念",
+    "evidence_span": "margin of safety as the central concept of investment",
+    "answer_type": "factual",
+    "expected_verdict": null,
+    "source_chapter": 20
+  },
+  {
+    "question": "市场先生寓言的核心教训是什么？",
+    "gold_answer": "不要被市场情绪左右，利用市场波动而不是被它控制",
+    "evidence_span": "Mr. Market is there to serve you, not to guide you",
+    "answer_type": "factual",
+    "expected_verdict": null,
+    "source_chapter": 8
+  },
+  {
+    "question": "每股收益过去10年增长至少多少才符合防御型标准？",
+    "gold_answer": "33%（三分之一）",
+    "evidence_span": "per-share earnings have increased by at least one-third in the past ten years",
+    "answer_type": "numeric",
+    "expected_verdict": null,
+    "source_chapter": 14
+  },
+  {
+    "question": "如果一家公司PB为3.5，PE为12，PE×PB=42，是否符合格雷厄姆标准？",
+    "gold_answer": "不符合，PE×PB应不超过22.5，42远超标准",
+    "evidence_span": "product should not exceed 22.5",
+    "answer_type": "direction",
+    "expected_verdict": "AVOID",
+    "source_chapter": 14
+  },
+  {
+    "question": "投资者应该把市场波动看作是？",
+    "gold_answer": "机会而非风险，可以利用市场先生的非理性报价",
+    "evidence_span": "price fluctuations have only one significant meaning for the true investor: they provide an opportunity to buy wisely",
+    "answer_type": "factual",
+    "expected_verdict": null,
+    "source_chapter": 8
+  },
+  {
+    "question": "债券和股票配置的基本比例是多少？",
+    "gold_answer": "50/50，至少不低于25%不高于75%",
+    "evidence_span": "never have less than 25% or more than 75% in common stocks",
+    "answer_type": "numeric",
+    "expected_verdict": null,
+    "source_chapter": 4
+  },
+  {
+    "question": "成长股投资者是否应支付任何价格买入优质公司？",
+    "gold_answer": "不是，即使最好的公司，支付过高价格也是糟糕的投资",
+    "evidence_span": "the really dreadful losses always came from buying low-quality securities at times of favorable business conditions",
+    "answer_type": "direction",
+    "expected_verdict": "AVOID",
+    "source_chapter": 20
+  }
+]
