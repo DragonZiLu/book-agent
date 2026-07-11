@@ -4,6 +4,7 @@
 """
 
 import sys
+import os
 import json
 import time
 import logging
@@ -96,9 +97,17 @@ def cmd_extract(source: str, output_dir: str = "./output"):
 
         # Step 2: 执行提取（带缓存 + 反馈）
         logger.info(f"📝 Step 2/3: 投资框架提取")
-        result = summarizer.summarize(chapters, feedbacks=feedbacks, cache=cache)
+        result = summarizer.summarize(
+            chapters, feedbacks=feedbacks, cache=cache, book_name=Path(source).stem
+        )
 
-        # Step 3: 三层质量评估
+        # Step 3: 三层质量评估（SKIP_EVAL=1 则跳过）
+        if os.environ.get("SKIP_EVAL") == "1":
+            logger.info(f"⏩ Step 3/3: 跳过评估 (SKIP_EVAL=1)")
+            save_output(result, None, skill_dir, reports_dir)
+            _print_cost_report(pool, report)
+            return
+
         logger.info(f"📊 Step 3/3: 质量评估")
         strategy_type = getattr(summarizer, "_strategy_type", "general")
         if USE_EVALUATOR_V2:
@@ -244,10 +253,11 @@ def cmd_advise(
     target: str,
     metrics: dict = None,
     context: str = "",
+    data_as_of: str = None,
 ):
     """
     投资顾问：基于提取的框架对目标标的进行分析。
-    用法: python book_agent.py advise ./output/skill 贵州茅台 --pe 30 --pb 8
+    用法: python book_agent.py advise ./output/skill 贵州茅台 --pe 30 --pb 8 --as-of 2024-Q3
     """
     from investment_advisor import InvestmentAdvisor
 
@@ -262,7 +272,7 @@ def cmd_advise(
         metrics = {}
 
     advisor = InvestmentAdvisor(skill_path)
-    report = advisor.analyze(target, metrics, context)
+    report = advisor.analyze(target, metrics, context, data_as_of=data_as_of)
 
     # 输出报告
     print(format_investment_report(report))
@@ -345,7 +355,7 @@ def main():
         print()
         print("示例:")
         print("  python book_agent.py extract ./intelligent_investor.pdf --output ./output")
-        print("  python book_agent.py advise ./output/skill 贵州茅台 --pe 30 --pb 8")
+        print("  python book_agent.py advise ./output/skill 贵州茅台 --pe 30 --pb 8 --as-of 2024-Q3 --context \"白酒龙头\"")
         return
 
     command = sys.argv[1]
@@ -373,26 +383,31 @@ def main():
         skill_dir = sys.argv[2]
         target = sys.argv[3]
 
-        # 解析 --key value 指标
+        # 解析 --key value 指标 / --context / --as-of
         metrics = {}
         context = ""
+        data_as_of = None
         i = 4
         while i < len(sys.argv):
-            if sys.argv[i].startswith("--") and i + 1 < len(sys.argv):
-                key = sys.argv[i][2:]  # 去掉 --
+            arg = sys.argv[i]
+            if arg == "--context" and i + 1 < len(sys.argv):
+                context = sys.argv[i + 1]
+                i += 2
+            elif arg == "--as-of" and i + 1 < len(sys.argv):
+                data_as_of = sys.argv[i + 1]
+                i += 2
+            elif arg.startswith("--") and i + 1 < len(sys.argv):
+                key = arg[2:]  # 去掉 --
                 val = sys.argv[i + 1]
                 try:
                     metrics[key] = float(val)
                 except ValueError:
                     metrics[key] = val  # 非数字保留字符串
                 i += 2
-            elif sys.argv[i] == "--context" and i + 1 < len(sys.argv):
-                context = sys.argv[i + 1]
-                i += 2
             else:
                 i += 1
 
-        cmd_advise(skill_dir, target, metrics, context)
+        cmd_advise(skill_dir, target, metrics, context, data_as_of=data_as_of)
 
     else:
         print(f"未知命令: {command}")

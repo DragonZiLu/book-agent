@@ -5,6 +5,7 @@ Executor 提取 Agent：流派识别 + 结构化提取 + rules.json 生成
 
 import json
 import logging
+import re
 import time
 from typing import List, Optional, Dict
 from dataclasses import dataclass, field
@@ -116,13 +117,91 @@ GENERAL_PROMPT = """你是一位资深投资分析师。请从以下投资书籍
 }
 """
 
+CLONING_PROMPT = """你是一位精通帕伯莱投资方法论的分析师。请从以下演讲章节中，专门提取"抄作业（Cloning/克隆策略）"方法论的结构化信息。
+
+重点关注（只提取克隆相关内容，忽略通用价值投资框架）：
+1. 克隆哲学：为什么克隆有效？帕伯莱如何论证克隆的合理性？
+2. 操作步骤：具体怎么抄？从哪里获取数据（13F/季报）？如何筛选标的？如何缩小范围？
+3. 筛选标准：什么样的投资者值得抄？什么样的持仓值得跟？排除标准是什么？
+4. 风险与盲区：克隆策略的陷阱？哪些情况不能抄？13F 数据滞后的应对？
+5. 检查清单：抄作业前必须确认的事项（能力圈、风格兼容、自己做功课等）
+6. 典型案例：帕伯莱自己成功/失败的克隆案例
+
+对于每条规则，尽可能提取：
+1. 明确的决策规则
+2. 原文证据（evidence）
+3. 适用条件与边界
+
+输出格式（JSON）：
+{
+  "cloning_philosophy": ["核心哲学论点1", ...],
+  "operational_steps": ["操作步骤1", ...],
+  "filter_criteria": ["筛选标准1", ...],
+  "red_flags": ["风险盲区1", ...],
+  "checklist_items": ["检查清单项1", ...],
+  "case_examples": ["典型案例1: ...", ...],
+  "evidence": ["原文证据片段1", ...]
+}
+"""
+
+INVESTMENT_CASES_PROMPT = """你是一位专门从帕伯莱演讲中提取投资案例的分析师。请从以下演讲章节中，定向提取帕伯莱本人实际操作过的投资案例。
+
+核心原则（最重要）：
+- **只提取帕伯莱本人投资过的标的**（他用 Pabrai Funds 或个人账户实际买入/持有的公司）
+- 如果他在讨论巴菲特的投资、别人的案例、或假设性场景，**必须忽略**
+- 如果他不确定是本人案例，标记 `is_pabrai_own_case: false`
+
+每个案例提取以下结构化信息：
+1. company_name: 公司全名
+2. ticker: 股票代码（如有提及）
+3. industry: 所属行业
+4. buy_info: {date, price_context, thesis} — 买入时间、价格背景、投资逻辑
+5. sell_info: {date, reason} — 卖出时间（或 "still holding"）、卖出原因
+6. outcome: {irr, multiple, result} — IRR 描述、回报倍数、结果（win/loss/ongoing）
+7. lessons: 从这笔交易中学到的教训
+8. evidence_quotes: 原文证据引述（必须包含，用于溯源验证）
+
+**如果没有本人案例，返回空列表。**
+
+输出格式（JSON）：
+{
+  "cases": [
+    {
+      "company_name": "公司名",
+      "ticker": "代码或 null",
+      "industry": "行业",
+      "is_pabrai_own_case": true,
+      "buy_info": {"date": "年份或时间段", "price_context": "价格/估值描述", "thesis": "核心买入逻辑"},
+      "sell_info": {"date": "卖出时间或 still holding", "reason": "卖出原因"},
+      "outcome": {"irr": "IRR 描述", "multiple": "回报倍数", "result": "win/loss/ongoing"},
+      "lessons": ["教训1", "教训2"],
+      "evidence_quotes": ["原文引述1", "原文引述2"],
+      "source_chapter": "章节标题"
+    }
+  ]
+}
+"""
+
 PROMPT_TEMPLATES = {
     "value":   VALUE_INVESTING_PROMPT,
     "growth":  GROWTH_INVESTING_PROMPT,
     "quant":   QUANT_INVESTING_PROMPT,
     "macro":   MACRO_INVESTING_PROMPT,
     "general": GENERAL_PROMPT,
+    "cloning": CLONING_PROMPT,
+    "investment_cases": INVESTMENT_CASES_PROMPT,
 }
+
+# 数值约束正则：指标名支持中英文（含下划线），运算符支持中英文与符号
+# 捕获组：1=指标名, 2=运算符, 3=数值
+# 指标名用非贪婪匹配，避免吞掉 "不超过/不低于" 等以"不"开头的运算符前缀
+# 例："PE不超过15" / "负债率高于70%" / "流动比率不低于2.0" / "ROE>15"
+NUM_RULE_PATTERN = re.compile(
+    r"([\u4e00-\u9fffA-Za-z_/]+?)\s*"
+    r"(>=|<=|≥|≤|=|>|<|不超过|不低于|不高于|不大于|低于|高于|大于|小于|"
+    r"大于等于|小于等于|至少|不少于|超过|不足|不到|未满|以上|以下)\s*"
+    r"([\d.]+)"
+)
 
 
 # ============ 数据结构 ============
@@ -215,6 +294,7 @@ class BookSummarizer:
         self.executor: LLMClient = pool.get("executor")
         self.utility: LLMClient = pool.get("utility")
         self._strategy_type: str = "general"
+        self._book_name: str = "unknown"
 
     def detect_strategy_type(self, chapters: list) -> str:
         """
@@ -405,67 +485,125 @@ class BookSummarizer:
 
         # 生成全局 rules_json
         logger.info("  🔧 生成 rules.json...")
-        rules_json = self._generate_rules_json(summaries)
+        rules_json = self._generate_rules_json(summaries, book_name=self._book_name)
 
         return summaries, rules_json
 
-    def _generate_rules_json(self, summaries: List[ChapterSummary]) -> dict:
-        """只提取有明确数值阈值的规则，模糊描述不输出"""
+    def _generate_rules_json(self, summaries: List[ChapterSummary], book_name: str = None) -> dict:
+        """
+        只提取有明确数值阈值的规则（中英文指标名均支持），模糊描述不输出。
+        规则按来源维度归类：选股标准 / 估值方法 / 风险信号 / 通用规则，
+        保证 red_flag_rules 等维度真正被填充，而非恒空。
+        """
+        if book_name is None:
+            book_name = getattr(self, "_book_name", "unknown")
 
-        def extract_numeric_rules(summary: ChapterSummary) -> List[dict]:
-            """从单个章节摘要中提取数值规则"""
-            results = []
-            all_rules = summary.rules + summary.selection_criteria + summary.red_flags
-
-            # 匹配数值模式："PE ≤ 15" / "PE不超过15" / "PE<15" 等
-            num_pattern = __import__("re").compile(
-                r"([A-Za-z_/]+)\s*(?:[≤>=<]|不超过|低于|高于|大于|小于|至少|不少于|不高于|不大于)\s*([\d.]+)"
-            )
-            for rule_text in all_rules:
-                for m in num_pattern.finditer(rule_text):
-                    metric = m.group(1).strip()
-                    try:
-                        value = float(m.group(2))
-                    except ValueError:
-                        continue
-                    if (
-                        metric.lower()
-                        not in ("至少", "不超过", "低于", "高于", "大于", "小于")
-                    ):
-                        op = self._infer_operator(rule_text, metric)
-                        results.append({
-                            "id": f"{metric.lower()}_{len(results)}",
-                            "metric": metric,
-                            "op": op,
-                            "value": value,
-                            "source": f"ch{summary.chapter_index}",
-                        })
-            return results
-
-        all_rules = []
+        # 各来源维度 → 提取到的数值规则
+        categorized: Dict[str, list] = {
+            "selection_criteria": [],
+            "valuation_methods": [],
+            "red_flags": [],
+            "rules": [],
+        }
+        dim_getters = [
+            ("selection_criteria", lambda s: s.selection_criteria),
+            ("valuation_methods", lambda s: s.valuation_methods),
+            ("red_flags", lambda s: s.red_flags),
+            ("rules", lambda s: s.rules),
+        ]
         for s in summaries:
-            all_rules.extend(extract_numeric_rules(s))
+            for dim, getter in dim_getters:
+                for text in getter(s):
+                    if not isinstance(text, str):
+                        continue
+                    categorized[dim].extend(
+                        self._extract_numeric_rules(text, s.chapter_index)
+                    )
+
+        # 估值规则：估值维度显式提取 + 已知估值指标（跨维度拾取）
+        valuation_metrics = {"PE", "PB", "PS", "PEG", "EV/EBITDA", "ROE", "ROA", "ROIC"}
+        valuation_rules = list(categorized["valuation_methods"])
+        for dim in ("selection_criteria", "red_flags", "rules"):
+            for r in categorized[dim]:
+                if r["metric"].upper() in valuation_metrics:
+                    valuation_rules.append(r)
+
+        # 选股标准 = 选股维度 + 通用规则维度
+        selection_rules = categorized["selection_criteria"] + categorized["rules"]
+
+        # 去重并分配稳定 id
+        valuation_rules = self._dedup_rules(valuation_rules)
+        selection_rules = self._dedup_rules(selection_rules)
+        red_flag_rules = self._dedup_rules(categorized["red_flags"])
+        for i, r in enumerate(valuation_rules):
+            r["id"] = f"{r['metric'].lower()}_{i}"
+        for i, r in enumerate(selection_rules):
+            r["id"] = f"{r['metric'].lower()}_{i}"
+        for i, r in enumerate(red_flag_rules):
+            r["id"] = f"{r['metric'].lower()}_{i}"
 
         return {
             "strategy_type": self._strategy_type,
-            "valuation_rules": [
-                r for r in all_rules
-                if r["metric"].upper() in ("PE", "PB", "PS", "PEG", "EV/EBITDA", "ROE", "ROA")
-            ],
-            "selection_criteria": all_rules,
-            "red_flag_rules": [
-                r for r in all_rules
-                if "flag" in r["metric"].lower() or "risk" in r["metric"].lower()
-            ],
+            "book": book_name,
+            "valuation_rules": valuation_rules,
+            "selection_criteria": selection_rules,
+            "red_flag_rules": red_flag_rules,
         }
+
+    def _extract_numeric_rules(self, text: str, chapter_index: int) -> List[dict]:
+        """从单条文本中提取数值约束（指标名支持中英文）。"""
+        results = []
+        for m in NUM_RULE_PATTERN.finditer(text):
+            metric = m.group(1).strip()
+            op_raw = m.group(2)
+            try:
+                value = float(m.group(3))
+            except ValueError:
+                continue
+            if not metric:
+                continue
+            results.append({
+                "id": f"{metric.lower()}_tmp",
+                "metric": metric,
+                "op": self._normalize_operator(op_raw),
+                "value": value,
+                "source": f"ch{chapter_index}",
+            })
+        return results
+
+    @staticmethod
+    def _dedup_rules(rules: List[dict]) -> List[dict]:
+        """按 (metric, op, value) 去重，避免同一条规则跨章节/维度重复。"""
+        seen = set()
+        out = []
+        for r in rules:
+            key = (r["metric"].lower(), r["op"], r["value"])
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(r)
+        return out
+
+    @staticmethod
+    def _normalize_operator(op_raw: str) -> str:
+        """标准化比较运算符（中英文 + 符号）"""
+        op = (op_raw or "").strip()
+        table = {
+            "≤": "<=", "≥": ">=",
+            "不超过": "<=", "不高于": "<=", "不大于": "<=", "低于": "<=",
+            "小于": "<", "不足": "<", "不到": "<", "未满": "<", "以下": "<=",
+            "不低于": ">=", "不少于": ">=", "高于": ">", "大于": ">",
+            "超过": ">", "至少": ">=", "以上": ">=",
+            "=": "==", "==": "==", "等于": "==",
+            "<": "<", ">": ">", "<=": "<=", ">=": ">=",
+        }
+        return table.get(op, "<=")
 
     @staticmethod
     def _infer_operator(text: str, metric: str) -> str:
-        """从规则文本推断比较运算符"""
+        """历史实现残留（当前未使用，已由 _normalize_operator 取代）。"""
         text_lower = text.lower()
-        if any(w in text_lower for w in ["不超过", "低于", "小于", "不高于", "不大于"]):
-            return "<="
-        elif any(w in text_lower for w in ["至少", "不少于", "不低于", "高于", "大于"]):
+        if any(w in text_lower for w in ["至少", "不少于", "不低于", "高于", "大于"]):
             return ">="
         elif "≥" in text or ">=" in text:
             return ">="
@@ -503,7 +641,8 @@ class BookSummarizer:
         skill_prompt = f"""请根据以下从投资书籍提取的信息，生成一份 SKILL.md 文档。
 
 文档结构：
-1. 流派：{self._strategy_type}
+1. 书籍：{self._book_name}
+2. 流派：{self._strategy_type}
 2. 核心投资哲学（基于 core_arguments）
 3. 选股框架概览
 4. 风险识别体系
@@ -553,7 +692,7 @@ class BookSummarizer:
         )
 
     def summarize(
-        self, chapters, feedbacks=None, cache=None
+        self, chapters, feedbacks=None, cache=None, book_name: str = None
     ) -> ExtractionOutput:
         """
         完整提取流程：
@@ -566,7 +705,10 @@ class BookSummarizer:
         if not self._strategy_type or self._strategy_type == "general":
             self.detect_strategy_type(chapters)
 
-        logger.info(f"  📖 流派: {self._strategy_type} | 章节数: {len(chapters)}")
+        if book_name:
+            self._book_name = book_name
+
+        logger.info(f"  📖 流派: {self._strategy_type} | 书籍: {self._book_name} | 章节数: {len(chapters)}")
 
         summaries, rules_json = self.extract_all_chapters(chapters, feedbacks, cache)
 

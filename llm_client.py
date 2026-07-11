@@ -8,6 +8,7 @@ import logging
 from typing import Optional
 from dataclasses import dataclass, field
 
+import httpx
 from openai import OpenAI
 from anthropic import Anthropic
 
@@ -41,7 +42,12 @@ class LLMClient:
 
         if self.provider in ("deepseek", "openai"):
             base_url = cfg["base_url"]
-            self._client = OpenAI(api_key=key_val, base_url=base_url)
+            self._client = OpenAI(
+                api_key=key_val,
+                base_url=base_url,
+                timeout=httpx.Timeout(connect=10.0, read=120.0, write=120.0, pool=10.0),
+                max_retries=1,
+            )
         elif self.provider == "anthropic":
             self._client = Anthropic(api_key=key_val)
         else:

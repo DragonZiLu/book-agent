@@ -7,7 +7,6 @@
 """
 
 import logging
-from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
@@ -79,7 +78,11 @@ class InvestmentAdvisor:
             self.skill_context += f"\n## 风险信号\n{red_flags_md.read_text(encoding='utf-8')[:2000]}"
 
     def analyze(
-        self, target: str, metrics: Dict[str, Any], context: str = ""
+        self,
+        target: str,
+        metrics: Dict[str, Any],
+        context: str = "",
+        data_as_of: str = None,
     ) -> InvestmentReport:
         """
         对目标标的进行投资分析。
@@ -88,10 +91,15 @@ class InvestmentAdvisor:
             target: 目标名称/代码（如 "贵州茅台 (600519)"）
             metrics: 财务指标字典（如 {"PE": 30, "PB": 8, ...}）
             context: 额外上下文信息（公司业务、行业等）
+            data_as_of: 数据时点（如 "2024-Q3"）。必须显式提供，
+                不可默认成"今天"，否则会暗示结论基于最新数据，违背数据时效铁律。
 
         Returns:
             InvestmentReport: 完整分析报告
         """
+        # 数据时点：必须显式传入，默认标记为"未提供"，禁止假装成当前日期
+        self._data_as_of = data_as_of or "未提供（请明确传入数据时点，如 2024-Q3）"
+
         # 标准化 metrics：确保都是 float 或 None
         std_metrics: Dict[str, Optional[float]] = {}
         for k, v in metrics.items():
@@ -127,7 +135,7 @@ class InvestmentAdvisor:
                 score=None,
                 rule_results=rule_results,
                 missing_metrics=missing_metrics,
-                data_as_of=datetime.now().strftime("%Y-%m-%d"),
+                data_as_of=self._data_as_of,
                 data_source="用户输入",
                 confidence=1.0 - missing_ratio,
                 matched_criteria=[
@@ -183,7 +191,7 @@ class InvestmentAdvisor:
             triggered_red_flags=triggered_red_flags,
             valuation_summary=valuation_summary,
             missing_metrics=missing_metrics,
-            data_as_of=datetime.now().strftime("%Y-%m-%d"),
+            data_as_of=self._data_as_of,
             data_source="用户输入",
             confidence=confidence,
         )

@@ -109,6 +109,13 @@ PROVIDER_CONFIG: Dict[str, Dict[str, str | None]] = {
     "anthropic": {"base_url": None,                          "env_key": "ANTHROPIC_API_KEY"},
 }
 
+# ============ 帕伯莱演讲转录件目录（可移植，默认用环境变量覆盖）============
+# 通过环境变量 PABRAI_TRANSCRIPTS_DIR 指定，便于在不同机器/CI 上运行
+PABRAI_TRANSCRIPTS_DIR: str = os.getenv(
+    "PABRAI_TRANSCRIPTS_DIR",
+    "/Users/luzilong/Work/DAYONE/01_投资哲学体系/帕伯莱/transcripts",
+)
+
 
 def validate_role_config() -> list[str]:
     """executor 与 judge 同源时打警告，不阻断运行"""

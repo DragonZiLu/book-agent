@@ -8,7 +8,9 @@ import time
 import subprocess
 from pathlib import Path
 
-TRANSCRIPTS_DIR = Path("/Users/luzilong/Work/DAYONE/01_投资哲学体系/帕伯莱/transcripts")
+from config import PABRAI_TRANSCRIPTS_DIR
+
+TRANSCRIPTS_DIR = Path(PABRAI_TRANSCRIPTS_DIR)
 OUTPUT_ROOT = Path("./output/pabrai")
 
 FILES = [

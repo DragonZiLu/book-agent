@@ -1207,16 +1207,22 @@ class EvaluatorCalibrator:
 
     def run_calibration(self, golden_path: str) -> dict:
         """
-        运行校准，返回一致率报告。
+        运行校准，返回一致率报告（元评估：检验 Judge 判分逻辑是否与人工预期一致）。
+
+        无需在黄金集里手写候选答案——采用自洽校准：
+          1) 用 gold_answer 本身作为候选答案，Judge 应判为 "correct"（检验不误杀正确答案）
+          2) 用一个明确的弃权回答作为候选，Judge 应判为 "not_covered"/"wrong" 而非 "correct"
+             （检验弃权/幻觉不被误判为正确）
+        任一检查不通过即记为分歧，用于捕获 prompt 退化。
 
         golden_path: 黄金测试集 JSON 文件路径
           格式: [{"question": "...", "gold_answer": "...", "evidence_span": "...",
-                  "answer_type": "numeric", "test_cases": [
-                     {"answer": "...", "expect": "correct|wrong|not_covered"}
-                  ]}]
+                  "answer_type": "numeric"|"direction"|"factual", ...}]
         """
         with open(golden_path, "r", encoding="utf-8") as f:
-            test_cases = json.load(f)
+            items = json.load(f)
+
+        ABSTENTION = "无法回答，提供的框架信息不足以判断此题。"
 
         results = {
             "total": 0,
@@ -1225,7 +1231,7 @@ class EvaluatorCalibrator:
             "disagreements": [],
         }
 
-        for item in test_cases:
+        for item in items:
             qa = ScenarioQA(
                 question=item["question"],
                 gold_answer=item["gold_answer"],
@@ -1234,29 +1240,34 @@ class EvaluatorCalibrator:
                 chapter_index=item.get("chapter_index", 0),
             )
 
-            for tc in item.get("test_cases", []):
-                expected = tc["expect"]
-                answer = tc["answer"]
+            # 1) 正确答案应被判 correct
+            gr_correct = self.judge.grade(qa, qa.gold_answer)
+            # 2) 明确弃权应被判 not_covered / wrong（绝不可能是 correct）
+            gr_abs = self.judge.grade(qa, ABSTENTION)
 
-                gr = self.judge.grade(qa, answer)
-                actual = gr.verdict
+            checks = [
+                ("gold_is_correct", gr_correct.verdict == "correct",
+                 gr_correct.verdict, "correct"),
+                ("abstain_not_correct", gr_abs.verdict != "correct",
+                 gr_abs.verdict, "not correct"),
+            ]
 
+            atype = qa.answer_type
+            for _name, ok, actual, expect in checks:
                 results["total"] += 1
-                atype = qa.answer_type
                 if atype not in results["by_type"]:
                     results["by_type"][atype] = {"total": 0, "agreed": 0}
                 results["by_type"][atype]["total"] += 1
 
-                if actual == expected:
+                if ok:
                     results["agreed"] += 1
                     results["by_type"][atype]["agreed"] += 1
                 else:
                     results["disagreements"].append({
                         "question": qa.question[:100],
-                        "answer": answer[:100],
-                        "expected": expected,
+                        "check": _name,
+                        "expected": expect,
                         "actual": actual,
-                        "reason": gr.reason,
                         "type": atype,
                     })
 
@@ -1286,8 +1297,8 @@ class EvaluatorCalibrator:
             print(f"\n  ❌ 分歧详情（前 5 条）:")
             for d in results["disagreements"][:5]:
                 print(f"    Q: {d['question']}")
-                print(f"    A: {d['answer']}")
-                print(f"    expect={d['expected']} actual={d['actual']} ({d['reason'][:60]})")
+                print(f"    检查: {d['check']}")
+                print(f"    expect={d['expected']} actual={d['actual']}")
                 print()
 
         verdict = "✅ 通过 (≥90%)" if results.get("agreement_rate", 0) >= 0.90 else "⚠️ 需调整"
